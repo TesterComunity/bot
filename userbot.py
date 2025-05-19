@@ -43,9 +43,7 @@ async def check_mrkt():
                     await mute_channel(channel)
                     await message.click(text='Проверить')
                     now = datetime.now().strftime('%d.%m.%Y %H:%M:%S')
-                    text = f'✅ Участие в розыгрыше!
-Канал: @{channel_username}
-Время: {now}'
+                    text = f'✅ Участие в розыгрыше!\\nКанал: @{channel_username}\\nВремя: {now}'
                     await client.send_message(LOG_USER, text)
                     with open('log.txt', 'a', encoding='utf-8') as log:
                         log.write(text + '\n')
