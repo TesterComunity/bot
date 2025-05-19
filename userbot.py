@@ -1,69 +1,66 @@
-
-from telethon import TelegramClient, events, Button, types
-from telethon.tl.functions.channels import JoinChannelRequest
-from telethon.tl.functions.account import UpdateNotifySettingsRequest
-from telethon.tl.types import InputNotifyPeer
-import os
-from dotenv import load_dotenv
-from datetime import datetime
 import asyncio
+from telethon import TelegramClient, events, Button
+from telethon.errors import FloodWaitError
 
-load_dotenv()
+API_ID = 1234567  # вставь свои
+API_HASH = 'abcdef1234567890abcdef1234567890'  # вставь свои
+PHONE = '+1234567890'  # твой номер
+REPORT_USER = 'sacoectasy'  # юзернейм куда шлем отчеты (без @)
 
-api_id = int(os.getenv("API_ID"))
-api_hash = os.getenv("API_HASH")
-client = TelegramClient('session', api_id, api_hash)
+client = TelegramClient('session', API_ID, API_HASH)
 
-LOG_USER = '@sacoectasy'
+async def join_channel(channel_username):
+    try:
+        await client(JoinChannelRequest(channel_username))
+        # Мутим уведомления
+        await client.send(
+            functions.account.UpdateNotifySettingsRequest(
+                peer=channel_username,
+                settings=types.InputPeerNotifySettings(mute_until=10**10)
+            )
+        )
+        return True
+    except FloodWaitError as e:
+        print(f'Flood wait {e.seconds} секунд, ждем...')
+        await asyncio.sleep(e.seconds + 5)
+        return False
+    except Exception as e:
+        print(f'Ошибка при подписке на {channel_username}: {e}')
+        return False
 
-async def mute_channel(entity):
-    await client(UpdateNotifySettingsRequest(
-        peer=InputNotifyPeer(entity),
-        settings=types.InputPeerNotifySettings(mute_until=2_147_483_647)
-    ))
+@client.on(events.NewMessage(chats='@mrkt'))
+async def handler(event):
+    # Когда приходит новое сообщение в @mrkt, проверяем есть ли там розыгрыш (пример)
+    text = event.raw_text.lower()
 
-# Основная логика
-async def check_mrkt():
-    entity = await client.get_entity('@mrkt')
-    async for message in client.iter_messages(entity, limit=10):
-        if 'Розыгрыш' in message.message and 'Подпишись на канал' in message.message:
-            buttons = message.buttons
-            channel_username = None
-
+    if 'розыгрыш' in text or 'подписка' in text:
+        # Допустим, мы должны подписаться на канал из кнопки
+        buttons = event.buttons
+        if buttons:
             for row in buttons:
                 for button in row:
-                    if button.url and 't.me/' in button.url:
-                        channel_username = button.url.split('/')[-1]
-                        break
+                    if isinstance(button, Button.Url):
+                        channel_url = button.url
+                        # Из url получаем юзернейм канала
+                        if 't.me/' in channel_url:
+                            channel_username = channel_url.split('t.me/')[1].split('?')[0]
+                            result = await join_channel(channel_username)
+                            if result:
+                                await client.send_message(REPORT_USER,
+                                    f'✅ Подписался на канал: {channel_username}')
+                            else:
+                                await client.send_message(REPORT_USER,
+                                    f'❌ Не удалось подписаться на канал: {channel_username}')
 
-            if channel_username:
-                try:
-                    channel = await client.get_entity(channel_username)
-                    await client(JoinChannelRequest(channel))
-                    await mute_channel(channel)
-                    await message.click(text='Проверить')
-                    now = datetime.now().strftime('%d.%m.%Y %H:%M:%S')
-                    text = f'✅ Участие в розыгрыше!\\nКанал: @{channel_username}\\nВремя: {now}'
-                    await client.send_message(LOG_USER, text)
-                    with open('log.txt', 'a', encoding='utf-8') as log:
-                        log.write(text + '\n')
-                except Exception as e:
-                    err = f'❌ Ошибка: {e}'
-                    await client.send_message(LOG_USER, err)
-                    with open('log.txt', 'a', encoding='utf-8') as log:
-                        log.write(err + '\n')
-
-@client.on(events.NewMessage(from_users=1667484260))
-async def handler(event):
-    await check_mrkt()
-
-async def scheduler():
-    while True:
-        await check_mrkt()
-        await asyncio.sleep(300)  # каждые 5 минут
+@client.on(events.NewMessage(pattern='/start'))
+async def start_handler(event):
+    await event.reply('Userbot запущен и готов к работе.')
 
 async def main():
-    await asyncio.gather(client.start(), scheduler())
+    print('Userbot стартует...')
+    await client.start(phone=PHONE)
+    print('Userbot запущен.')
+    await client.run_until_disconnected()
 
-with client:
+if __name__ == '__main__':
     client.loop.run_until_complete(main())
